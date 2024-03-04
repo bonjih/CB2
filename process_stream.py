@@ -2,7 +2,6 @@ import time
 import cv2
 import numpy as np
 import imutils
-from ultralytics import YOLO
 
 from process_truck import TruckProcessor
 from object_masking import RegionMasking
@@ -56,7 +55,7 @@ def define_mask(new_frame, roi_number):
     return cnts, thresholded, roi_obj
 
 
-def run_stream(frame_orig, prev_frame):
+def run_stream(cap):
     """
 
     :param cap:
@@ -69,65 +68,65 @@ def run_stream(frame_orig, prev_frame):
     truck_instance = TruckProcessor()
 
     back = cv2.createBackgroundSubtractorMOG2()
-    f_width = frame_orig.shape[1]
-    f_height = frame_orig.shape[0]
+    prev_frame = cap.read()[1]
 
-    model_path = "../model/dust_detect_20231116.pt"
-    model = YOLO(model_path)
-    model.to('cuda')
+    f_width = int(cap.get(3))
+    f_height = int(cap.get(4))
 
-    is_empty = None
+    try:
+        while True:
+            ret, frame_orig = cap.read()
+            if not ret:
+                break
 
-    if prev_frame is None:
-        prev_frame = frame_orig
+            # truck left
+            thresh_min, thresh_max, roi_is_truck_l = masking_instance_l.masking(prev_frame, frame_orig, back)
+            thresh_type = masking_instance_l.threshold(thresh_min, thresh_max)
+            truck_instance_l = TruckDetector(thresh_type, f_width, f_height, 'Truck L', roi_is_truck_l)
+            frame_is_truck_l, exist_truck_l = truck_instance_l.is_truck(frame_orig)
+            frame_roi_l = frame_is_truck_l.copy()
 
-    # try:
+            # truck right
+            thresh_min_r, thresh_max_r, roi_is_truck_r = masking_instance_r.masking(prev_frame, frame_orig, back)
+            thresh_type_r = masking_instance_r.threshold(thresh_min_r, thresh_max_r)
+            truck_instance_r = TruckDetector(thresh_type_r, f_width, f_height, 'Truck R', roi_is_truck_r)
+            frame_is_truck_r, exist_truck_r = truck_instance_r.is_truck(frame_orig)
+            frame_roi_r = frame_is_truck_r.copy()
 
-    # truck left
-    thresh_min, thresh_max, roi_is_truck_l = masking_instance_l.masking(prev_frame, frame_orig, back)
-    thresh_type = masking_instance_l.threshold(thresh_min, thresh_max)
-    truck_instance_l = TruckDetector(thresh_type, f_width, f_height, 'Truck L', roi_is_truck_l)
-    frame_is_truck_l, exist_truck_l = truck_instance_l.is_truck(frame_orig)
-    frame_roi_l = frame_is_truck_l.copy()
+            if exist_truck_l:
+                c1, mask_l, roi_left = define_mask(frame_roi_l, 1)
 
-    # truck right
-    thresh_min_r, thresh_max_r, roi_is_truck_r = masking_instance_r.masking(prev_frame, frame_orig, back)
-    thresh_type_r = masking_instance_r.threshold(thresh_min_r, thresh_max_r)
-    truck_instance_r = TruckDetector(thresh_type_r, f_width, f_height, 'Truck R', roi_is_truck_r)
-    frame_is_truck_r, exist_truck_r = truck_instance_r.is_truck(frame_orig)
-    frame_roi_r = frame_is_truck_r.copy()
+                result, is_empty = truck_instance.filter_contours(c1, frame_roi_l, mask_l, roi_left )
 
-    if exist_truck_l:
-        c1, mask_l, roi_left = define_mask(frame_roi_l, 1)
+            elif exist_truck_r:
+                c2, mask_r, roi_right = define_mask(frame_roi_r, 2)
+                result, is_empty = truck_instance.filter_contours(c2, frame_roi_r, mask_r, roi_right )
 
-        result, is_empty = truck_instance.filter_contours(c1, frame_roi_l, mask_l, roi_left )
+            else:
+                result = frame_orig
 
-    elif exist_truck_r:
-        c2, mask_r, roi_right = define_mask(frame_roi_r, 2)
-        result, is_empty = truck_instance.filter_contours(c2, frame_roi_r, mask_r, roi_right )
+            cv2.putText(result, 'TV401A PC1 ROM North 2023.11.28-13.00.00', (int(10), int(40)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        .5, (255, 255, 255), 1)
 
-    else:
-        result = frame_orig
+            cv2.imshow('TV401A PC1 ROM North', result)
 
-    cv2.putText(result, 'TV401A PC1 ROM North 2023.11.28-13.00.00', (int(10), int(40)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                .5, (255, 255, 255), 1)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-    return result
+        cap.release()
+        cv2.destroyAllWindows()
 
-
-    #
-    #
-    # except Exception as e:
-    #     # sleep 30 seconds for resting loop if stream stops
-    #     time.sleep(30)
+    except Exception as e:
+        # sleep 30 seconds for resting loop if stream stops
+        time.sleep(30)
 
 
-# def main():
-#     cap = cv2.VideoCapture(
-#         r'C:\Users\hamibenb\Desktop\Crusher\Carryback\(10.114.237.110) - TV401A PC1 ROM North-2023.11.28-13.00.00-30m00s.mkv')
-#
-#     run_stream(cap)
-#
-#
-# main()
+def main():
+    cap = cv2.VideoCapture(
+        r'C:\Users\hamibenb\Desktop\Crusher\Carryback\(10.114.237.110) - TV401A PC1 ROM North-2023.11.28-13.00.00-30m00s.mkv')
+
+    run_stream(cap)
+
+
+main()
